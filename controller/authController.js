@@ -3,6 +3,7 @@ const asyncHandler = require("express-async-handler");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const {BlackList , validateBlackList} = require('../module/blackList')
+const nodemailer = require('nodemailer')
 module.exports.Register = asyncHandler(async (req, res) => {
   try {
     const { error } = validateRegister(req.body);
@@ -101,3 +102,78 @@ module.exports.LogOut = asyncHandler(async (req, res) => {
     });
   }
 });
+
+const transForm = nodemailer.createTransport({
+  service : 'gmail',
+
+  auth : {
+    user :process.env.USER || 'ranaandahmed55@gmail.com',
+    pass :process.env.PASS || '123456'
+  }
+
+})
+module.exports.resetPassword = asyncHandler(async (req , res)=>{
+  try{
+    const {email} = req.body;
+    const user = await User.findOne({email});
+    if(!user){res.status(404).json({message:'user not found'})}
+    const token = jwt.sign({id:user._id},process.env.JWT_SECRET || 'secret1230',{expiresIn: '1h'})
+    const link = `${process.env.FRONTENDURL}/reset-password/${token}`
+    const mailOptions = {
+      from : process.env.USER || 'ranaandahmed55@gmail.com',
+      to : email,
+      subject:'Reset Your Password',
+      html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+    <div style="background-color: #4285f4; padding: 20px; text-align: center;">
+        <h1 style="color: white; margin: 0;">Reset Your Password</h1>
+    </div>
+    
+    <div style="padding: 30px;">
+        <p style="font-size: 16px; line-height: 1.6; color: #333;">Hello,</p>
+        
+        <p style="font-size: 16px; line-height: 1.6; color: #333;">
+            We received a request to reset your password. Click the button below to proceed:
+        </p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="${link}" 
+               style="display: inline-block; background-color: #4285f4; color: white; 
+                      padding: 12px 24px; border-radius: 4px; text-decoration: none; 
+                      font-weight: bold; font-size: 16px;">
+                Reset Password
+            </a>
+        </div>
+        
+        <p style="font-size: 16px; line-height: 1.6; color: #333;">
+            If you didn't request this password reset, please ignore this email or contact our support team if you have any concerns.
+        </p>
+        
+        <p style="font-size: 14px; line-height: 1.6; color: #777; margin-top: 30px;">
+            For security reasons, this link will expire in 1 hour.
+        </p>
+    </div>
+    
+    <div style="background-color: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; color: #777;">
+        <p style="margin: 0;">© 2023 Your Company Name. All rights reserved.</p>
+    </div>
+</div>
+      `,
+    }
+    await transForm.sendMail(mailOptions);
+    res.status(200).json({message:'Email sent successfully'});
+  }catch(err){res.status(500).json(err)}
+})
+module.exports.resetPasswordToken = asyncHandler(async (req , res )=>{
+  try{
+    const token = req.params.token;
+    const decoded = jwt.verify(token ,process.env.JWT_SECRET || 'secret1230');
+    const user = await User.findById(decoded.id);
+    if(!user){res.status(404).json({message:'user not found'})}
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(req.body.password, salt);
+  user.password = hashedPassword;
+  await user.save();
+  res.status(200).json({message:'password reset successfully , please login again'})
+  }catch(err){res.status(500).json(err)}
+})
