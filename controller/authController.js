@@ -4,6 +4,87 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const {BlackList , validateBlackList} = require('../module/blackList')
 const nodemailer = require('nodemailer')
+//google auth
+const passport = require("passport"); 
+const GoogleStrategy = require("passport-google-oauth20").Strategy; 
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.CLIENT_ID, 
+      clientSecret: process.env.CLIENT_SECRET, 
+      callbackURL: "http://localhost:4000/api/auth/google/callback"
+
+
+    },
+    async (accessToken, refreshToken, profile, done) => { 
+      try {
+        let existingUser = await User.findOne({ email: profile.emails[0].value }); 
+        const fullName = profile.displayName.split(' ');
+        const firstName = fullName[0]; // أول جزء هو الاسم الأول
+        const lastName = fullName.slice(1).join(' '); // الباقي هو اسم العائلة
+        const random3Digits = Math.floor(100 + Math.random() * 900);
+        if (!existingUser) {
+          existingUser = new User({
+            email: profile.emails[0].value, 
+            firstName: firstName,
+            lastName: lastName,
+            password: "google-auth", 
+            phone:'01000000000',
+            userName:firstName + random3Digits,
+            image: {
+              url: profile.photos[0].value || undefined,
+              id: "google"
+            }
+          });
+
+          await existingUser.save(); 
+        }
+
+     
+        const token = jwt.sign(
+          { id: existingUser._id, isAdmin: existingUser.isAdmin , isTeacher: existingUser.isTeacher},
+          process.env.JWT_SECRET || "secret12345", 
+          { expiresIn: "7d" } 
+        );
+
+        existingUser.token = token; 
+        await existingUser.save(); 
+
+        return done(null, existingUser); 
+      } catch (error) {
+        return done(error, null); 
+      }
+    }
+  )
+);
+
+
+module.exports.googleAuth = passport.authenticate("google", {
+  scope: ["profile", "email"], 
+  prompt: "consent", 
+});
+
+
+module.exports.googleCallback = async (req, res, next) => {
+  passport.authenticate("google", { session: false }, (err, user, info) => {
+    if (err || !user) {
+      return res.redirect("/login");
+    }
+
+    req.user = user;
+    console.log("User authenticated successfully:", req.user);
+    res.redirect(`http://localhost:5173/profile?token=${req.user.token}`);
+  })(req, res, next);
+};
+
+
+// تسجيل خروج المستخدم
+// module.exports.logout = (req, res) => {
+//   req.logout(() => { 
+//     res.redirect("/"); 
+//   });
+// };
+
 module.exports.Register = asyncHandler(async (req, res) => {
   try {
     const { error } = validateRegister(req.body);
